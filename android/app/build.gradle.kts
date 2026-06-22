@@ -7,7 +7,10 @@ plugins {
 
 android {
     namespace = "com.example.lu_serve"
-    compileSdk = flutter.compileSdkVersion
+    // compileSdk 36 is required by androidx.core 1.17.0 / androidx.browser
+    // 1.9.0 (pulled in transitively by supabase_flutter). It also covers
+    // the android:attr/lStar attribute used by sign_in_with_apple >= 6.0.0.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -20,10 +23,8 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.lu_serve"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        // Plugins like file_picker require minSdk 21+; pin a safe floor.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -32,9 +33,13 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Use a debug signing config for now so `flutter build apk` works
+            // out of the box. Replace with a real release signing config
+            // (see https://docs.flutter.dev/deployment/android#signing-the-app)
+            // before publishing to the Play Store.
             signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

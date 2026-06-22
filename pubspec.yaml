@@ -48,6 +48,13 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
 
+# Override transitive deps that pull in broken Android resources.
+# sign_in_with_apple 5.0.0 (pulled in by supabase_flutter) references
+# android:attr/lStar and breaks AAPT resource verification on
+# current compileSdks. Pin to 6.0.0+ which fixes the issue.
+dependency_overrides:
+  sign_in_with_apple: ^6.0.0
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

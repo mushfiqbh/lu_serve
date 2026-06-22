@@ -1,8 +1,36 @@
 import 'package:flutter/material.dart';
 import 'package:lu_serve/models/profile.dart';
 import 'package:lu_serve/services/auth_provider.dart';
+import 'package:lu_serve/services/notes_service.dart';
+import 'package:lu_serve/services/notice_service.dart';
+import 'package:lu_serve/services/bus_schedule_service.dart';
+import 'package:lu_serve/services/calendar_service.dart';
 import 'package:lu_serve/screens/profile/profile_screen.dart';
 import 'package:lu_serve/screens/admin/admin_dashboard_screen.dart';
+
+/// Categories of recent updates surfaced on the home dashboard.
+enum UpdateType { note, notice, bus, calendar }
+
+/// Lightweight union describing a recent item shown in the home feed.
+class RecentUpdate {
+  final UpdateType type;
+  final String id;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final DateTime timestamp;
+
+  RecentUpdate({
+    required this.type,
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.timestamp,
+  });
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -90,11 +118,15 @@ class _HomeTab extends StatefulWidget {
 
 class _HomeTabState extends State<_HomeTab> {
   Profile? _profile;
+  bool _isLoadingUpdates = true;
+  String? _updatesError;
+  List<RecentUpdate> _recentUpdates = const [];
 
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    _loadRecentUpdates();
   }
 
   Future<void> _loadProfile() async {
@@ -106,6 +138,167 @@ class _HomeTabState extends State<_HomeTab> {
         });
       }
     } catch (_) {}
+  }
+
+  /// Pulls the most recent items from notes, notices, bus schedules and
+  /// calendar events, merges them, and renders the newest first.
+  Future<void> _loadRecentUpdates() async {
+    setState(() {
+      _isLoadingUpdates = true;
+      _updatesError = null;
+    });
+
+    try {
+      final notes = await NotesService().getAllNotes();
+      final notices = await NoticeService().getAllNotices();
+      final buses = await BusScheduleService().getAllSchedules();
+      final events = await CalendarService().getAllEvents();
+
+      final updates = <RecentUpdate>[];
+
+      for (final n in notes.take(2)) {
+        updates.add(
+          RecentUpdate(
+            type: UpdateType.note,
+            id: n.id,
+            title: n.subject,
+            subtitle: n.description?.isNotEmpty == true
+                ? n.description!
+                : '${n.courseCode} • New notes uploaded',
+            icon: Icons.note,
+            color: Colors.green,
+            timestamp: n.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+          ),
+        );
+      }
+
+      for (final notice in notices.take(2)) {
+        updates.add(
+          RecentUpdate(
+            type: UpdateType.notice,
+            id: notice.id,
+            title: notice.title,
+            subtitle: notice.categoryLabel,
+            icon: Icons.campaign,
+            color: Colors.blue,
+            timestamp:
+                notice.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+          ),
+        );
+      }
+
+      for (final bus in buses.take(2)) {
+        updates.add(
+          RecentUpdate(
+            type: UpdateType.bus,
+            id: bus.id,
+            title: 'Bus ${bus.busNumber}',
+            subtitle: '${bus.route} • Departs ${bus.departureTime}',
+            icon: Icons.directions_bus,
+            color: Colors.orange,
+            timestamp: bus.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+          ),
+        );
+      }
+
+      for (final event in events.take(2)) {
+        final dateLabel =
+            '${event.eventDate.year}-${event.eventDate.month.toString().padLeft(2, '0')}-${event.eventDate.day.toString().padLeft(2, '0')}';
+        updates.add(
+          RecentUpdate(
+            type: UpdateType.calendar,
+            id: event.id,
+            title: event.title,
+            subtitle: dateLabel,
+            icon: Icons.calendar_month,
+            color: Colors.purple,
+            timestamp:
+                event.createdAt ?? event.eventDate,
+          ),
+        );
+      }
+
+      updates.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+      if (!mounted) return;
+      setState(() {
+        _recentUpdates = updates.take(8).toList();
+        _isLoadingUpdates = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _updatesError = 'Failed to load recent updates';
+        _isLoadingUpdates = false;
+      });
+    }
+  }
+
+  /// Routes a tapped recent update to the corresponding destination.
+  void _openUpdate(RecentUpdate update) {
+    switch (update.type) {
+      case UpdateType.note:
+        Navigator.pushNamed(context, '/notes');
+        break;
+      case UpdateType.notice:
+        Navigator.pushNamed(context, '/notices');
+        break;
+      case UpdateType.bus:
+        Navigator.pushNamed(context, '/busSchedule');
+        break;
+      case UpdateType.calendar:
+        Navigator.pushNamed(context, '/calendar');
+        break;
+    }
+  }
+
+  Widget _buildRecentUpdatesCard() {
+    if (_isLoadingUpdates) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    if (_updatesError != null) {
+      return Card(
+        child: ListTile(
+          leading: const Icon(Icons.error_outline, color: Colors.red),
+          title: Text(_updatesError!),
+          trailing: TextButton(
+            onPressed: _loadRecentUpdates,
+            child: const Text('Retry'),
+          ),
+        ),
+      );
+    }
+
+    if (_recentUpdates.isEmpty) {
+      return const Card(
+        child: ListTile(
+          leading: Icon(Icons.inbox_outlined, color: Colors.grey),
+          title: Text('No recent updates yet'),
+          subtitle: Text('New content will appear here.'),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        for (final update in _recentUpdates)
+          Card(
+            child: ListTile(
+              leading: Icon(update.icon, color: update.color),
+              title: Text(update.title),
+              subtitle: Text(update.subtitle),
+              trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+              onTap: () => _openUpdate(update),
+            ),
+          ),
+      ],
+    );
   }
 
   @override
@@ -196,30 +389,7 @@ class _HomeTabState extends State<_HomeTab> {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 15),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.campaign, color: Colors.blue),
-                title: const Text("Mid Term Exam Schedule Published"),
-                subtitle: const Text("Check the latest exam routine."),
-              ),
-            ),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.note, color: Colors.green),
-                title: const Text("New Notes Uploaded"),
-                subtitle: const Text("Database Management System"),
-              ),
-            ),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.campaign, color: Colors.purple),
-                title: const Text("Important Notice Published"),
-                subtitle: const Text(
-                  "Check the latest notices and announcements.",
-                ),
-                onTap: () => Navigator.pushNamed(context, '/notices'),
-              ),
-            ),
+            _buildRecentUpdatesCard(),
           ],
         ),
       ),
